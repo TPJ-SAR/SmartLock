@@ -97,6 +97,7 @@ class RC522:
         if version in (0x00, 0xFF):
             raise RuntimeError(f"No RC522 answered (version register 0x{version:02X}): check the wiring and that SPI is on")
         self.version = version
+        self.info = f"RC522 version 0x{version:02X}"  # Same attribute as pn532.py, used by smart_lock.py
 
     # ---------- SPI register access (Pi <-> RC522) ----------
     # The first SPI byte is the address: bit 7 = 1 to read / 0 to write, bits 6-1 = register, bit 0 = always 0.

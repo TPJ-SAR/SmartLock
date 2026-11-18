@@ -12,7 +12,8 @@ What it does:
   - Every event goes through report_event(). For now it only prints, but that's where the wireless part of the
     project would go: send the event over Wi-Fi (MQTT, HTTP), Bluetooth, LoRa, etc.
 
-Files: rc522.py (RFID reader driver) and keypad.py (keypad driver) must be in the same folder.
+Files: pn532.py or rc522.py (RFID reader driver, see READER below) and keypad.py (keypad driver) must be in the
+       same folder.
 Run:   python3 smart_lock.py        (Ctrl+C to stop)
 """
 
@@ -21,12 +22,13 @@ import time
 from gpiozero import DigitalOutputDevice
 
 from keypad import Keypad
-from rc522 import RC522
 
 
 # ---------------- Settings ----------------
+READER = "PN532"        # Which RFID module is wired: "PN532" (pn532.py) or "RC522" (rc522.py)
+
 AUTHORIZED_CARDS = {
-    # UID (as printed by rc522.py)  : who it belongs to
+    # UID (as printed by pn532.py or rc522.py)  : who it belongs to
     "04A1B2C3": "Example card",
 }
 PIN_CODE = "1234"
@@ -35,8 +37,19 @@ LOCK_GPIO = 17          # Pi pin 11. HIGH = unlocked. Use a relay module or tran
 UNLOCK_SECONDS = 5      # How long the lock stays open
 MAX_WRONG_PINS = 3      # Wrong PINs in a row before the keypad locks out
 LOCKOUT_SECONDS = 30
-CARD_GONE_POLLS = 3     # A card counts as removed after this many empty reads in a row (see read_uid in rc522.py)
+CARD_GONE_POLLS = 3     # A card counts as removed after this many empty reads in a row (see the test loop in pn532.py / rc522.py)
 LOOP_DELAY = 0.05       # 50 ms between checks: fast enough to feel instant, light on the CPU
+
+
+def make_reader():
+    """Create the reader chosen in READER. Both drivers have the same read_uid(), close() and info."""
+    if READER == "PN532":
+        from pn532 import PN532
+        return PN532()
+    if READER == "RC522":
+        from rc522 import RC522
+        return RC522()
+    raise ValueError(f"Unknown READER {READER!r}: use \"PN532\" or \"RC522\"")
 
 
 def report_event(kind, detail=""):
@@ -48,7 +61,7 @@ def report_event(kind, detail=""):
 
 class SmartLock:
     def __init__(self):
-        self.reader = RC522()
+        self.reader = make_reader()
         self.keypad = Keypad()
         self.lock = DigitalOutputDevice(LOCK_GPIO, initial_value=False)  # Start locked
 
@@ -72,7 +85,7 @@ class SmartLock:
     def check_card(self):
         uid = self.reader.read_uid()
         if uid is None:
-            # A card left on the reader doesn't answer every time, so wait for several misses before
+            # A card left on the reader may not answer every time, so wait for several misses before
             # deciding it's gone. Only then can the same card trigger the lock again
             self.card_misses += 1
             if self.card_misses >= CARD_GONE_POLLS:
@@ -127,7 +140,7 @@ class SmartLock:
     # ---------- Main loop ----------
 
     def run(self):
-        report_event("READY", f"RC522 version 0x{self.reader.version:02X}")
+        report_event("READY", self.reader.info)
         while True:
             self.check_card()
             self.check_keypad()
